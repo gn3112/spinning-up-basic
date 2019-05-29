@@ -42,6 +42,7 @@ D = deque(maxlen=REPLAY_SIZE)
 
 def test(actor,step):
     img_ep = []
+    step_ep = 0
     with torch.no_grad():
         state, done, total_reward = env.reset(), False, 0
     while not done:
@@ -50,7 +51,9 @@ def test(actor,step):
         state, reward, done = env.step(action.long())
         total_reward += reward
         img_ep.append(env.render())
-
+        step_ep += 1
+        if step_ep > 60:
+            break
     vid.from_list(img_ep,step)
     return total_reward
 
