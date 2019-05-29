@@ -44,21 +44,22 @@ class SoftActor(nn.Module):
   def __init__(self, hidden_size):
     super().__init__()
     self.log_std_min, self.log_std_max = -20, 2  # Constrain range of standard deviations to prevent very deterministic/stochastic policies
-    layers = [nn.Linear(10, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 2)]
+    layers = [nn.Linear(10, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 8), nn.Softmax(dim=0)]
     self.policy = nn.Sequential(*layers)
 
   def forward(self, state):
-    policy_mean, policy_log_std = self.policy(state).chunk(2, dim=1)
-    policy_log_std = torch.clamp(policy_log_std, min=self.log_std_min, max=self.log_std_max)
-    policy = TanhNormal(policy_mean, policy_log_std.exp())
+    #policy_mean, policy_log_std = self.policy(state).chunk(2, dim=1)
+    #policy_log_std = torch.clamp(policy_log_std, min=self.log_std_min, max=self.log_std_max)
+    #policy = TanhNormal(policy_mean, policy_log_std.exp())
+    policy = self.policy(state)
     return policy
 
 
 class Critic(nn.Module):
-  def __init__(self, hidden_size, state_action=False, layer_norm=False):
+  def __init__(self, hidden_size, output_size, state_action=False, layer_norm=False):
     super().__init__()
     self.state_action = state_action
-    layers = [nn.Linear(10 + (1 if state_action else 0), hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 8)]
+    layers = [nn.Linear(10 + (1 if state_action else 0), hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, output_size)]
     if layer_norm:
       layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]  # Insert layer normalisation between fully-connected layers and nonlinearities
     self.value = nn.Sequential(*layers)
