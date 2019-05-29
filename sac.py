@@ -7,9 +7,12 @@ from hyperparams import OFF_POLICY_BATCH_SIZE as BATCH_SIZE, DISCOUNT, ENTROPY_W
 from env import Env
 from models import Critic, SoftActor, create_target_network, update_target_network
 from utils import plot
-
+from images_to_video import im_to_vid
 
 env = Env()
+eval = evaluation()
+expdir = 
+vid = im_to_vid(expdir)
 actor = SoftActor(HIDDEN_SIZE)
 critic_1 = Critic(HIDDEN_SIZE, 8, state_action=False)
 critic_2 = Critic(HIDDEN_SIZE, 8, state_action=False)
@@ -20,17 +23,20 @@ critics_optimiser = optim.Adam(list(critic_1.parameters()) + list(critic_2.param
 value_critic_optimiser = optim.Adam(value_critic.parameters(), lr=LEARNING_RATE)
 D = deque(maxlen=REPLAY_SIZE)
 
-
-def test(actor):
-  with torch.no_grad():
-    state, done, total_reward = env.reset(), False, 0
-    while not done:
-      action_dstr = actor(state)  # Use purely exploitative policy at test time
-      _, action = torch.max(action_dstr,0)  
-      state, reward, done = env.step(action.long())
-      total_reward += reward
-      
-    return total_reward
+class evaluation(object): 
+    def test(actor):
+        img_ep = []  
+        with torch.no_grad():
+            state, done, total_reward = env.reset(), False, 0
+        while not done:
+            action_dstr = actor(state)  # Use purely exploitative policy at test time
+            _, action = torch.max(action_dstr,0)  
+            state, reward, done = env.step(action.long())
+            total_reward += reward
+            img_ep.append(env.render())
+            
+        vid.from_list(img_ep,)
+        return total_reward
 
 
 state, done = env.reset(), False

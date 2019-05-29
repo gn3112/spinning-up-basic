@@ -22,3 +22,6 @@ class Env():
     elif done:
         self.n_step = 0
     return torch.tensor(state, dtype=torch.float32), reward, done
+
+  def render(self):
+    return self._env.render()
