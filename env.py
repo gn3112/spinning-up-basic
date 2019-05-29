@@ -7,8 +7,8 @@ class Env():
     self._env = environment()
     self.n_step = 0
   def reset(self):
-    self._env.reset_robot_position(random_=True)
-    self._env.reset_target_position(random_=False)
+    self._env.reset_robot_position(random_=False)
+    self._env.reset_target_position(random_=True)
     state = self._env.get_obs()
     return torch.tensor(state, dtype=torch.float32)
 
