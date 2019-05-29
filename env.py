@@ -3,8 +3,8 @@ import torch
 
 
 class Env():
-  def __init__(self):
-    self._env = environment()
+  def __init__(self,continuous=False):
+    self._env = environment(continuous_control=continuous)
     self.n_step = 0
   def reset(self):
     self._env.reset_robot_position(random_=False)

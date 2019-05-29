@@ -1,7 +1,7 @@
 import copy
 import torch
 from torch import nn
-from torch.distributions import Distribution, Normal
+from torch.distributions import Distribution, MultivariateNormal
 
 
 class Actor(nn.Module):
@@ -22,7 +22,7 @@ class Actor(nn.Module):
 class TanhNormal(Distribution):
   def __init__(self, loc, scale):
     super().__init__()
-    self.normal = Normal(loc, scale)
+    self.normal = MultivariateNormal(loc, scale)
 
   def sample(self):
     return torch.tanh(self.normal.sample())
@@ -41,17 +41,21 @@ class TanhNormal(Distribution):
 
 
 class SoftActor(nn.Module):
-  def __init__(self, hidden_size):
+  def __init__(self, hidden_size, continuous=False):
     super().__init__()
-    self.log_std_min, self.log_std_max = -20, 2  # Constrain range of standard deviations to prevent very deterministic/stochastic policies
-    layers = [nn.Linear(10, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 8), nn.Softmax(dim=0)]
+    self.continuous = continuous
+    self.log_std_min, self.log_std_max = [-5,-5], [5,5]  # Constrain range of standard deviations to prevent very deterministic/stochastic policies
+    layers = [nn.Linear(10, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 4 if continuous else 8), (None if continuous else nn.Softmax(dim=0))]
     self.policy = nn.Sequential(*layers)
 
   def forward(self, state):
-    #policy_mean, policy_log_std = self.policy(state).chunk(2, dim=1)
-    #policy_log_std = torch.clamp(policy_log_std, min=self.log_std_min, max=self.log_std_max)
-    #policy = TanhNormal(policy_mean, policy_log_std.exp())
-    policy = self.policy(state)
+    if continuous:
+        policy_mean, policy_log_std = self.policy(state).chunk(2, dim=1)
+        policy_log_std = torch.clamp(policy_log_std, min=self.log_std_min, max=self.log_std_max)
+        policy = TanhNormal(policy_mean, policy_log_std.exp())
+    else:
+        policy = self.policy(state)
+
     return policy
 
 

@@ -28,11 +28,12 @@ logdir = os.path.join('data', logdir)
 if not(os.path.exists(logdir)):
     os.makedirs(logdir)
 setup_logger(logdir)
-env = Env()
+continuous = True
+env = Env(continuous=continuous)
 vid = im_to_vid(logdir)
-actor = SoftActor(HIDDEN_SIZE).to(device)
-critic_1 = Critic(HIDDEN_SIZE, 8, state_action=False).to(device)
-critic_2 = Critic(HIDDEN_SIZE, 8, state_action=False).to(device)
+actor = SoftActor(HIDDEN_SIZE, continuous=continuous).to(device)
+critic_1 = Critic(HIDDEN_SIZE, 8, state_action=True if continuous else False).to(device)
+critic_2 = Critic(HIDDEN_SIZE, 8, state_action=True if continuous else False).to(device)
 value_critic = Critic(HIDDEN_SIZE, 1).to(device)
 target_value_critic = create_target_network(value_critic).to(device)
 actor_optimiser = optim.Adam(actor.parameters(), lr=LEARNING_RATE)
@@ -46,14 +47,18 @@ def test(actor,step):
     with torch.no_grad():
         state, done, total_reward = env.reset(), False, 0
     while not done:
-        action_dstr = actor(state.to(device))  # Use purely exploitative policy at test time
-        _, action = torch.max(action_dstr,0)
-        state, reward, done = env.step(action.long())
-        total_reward += reward
-        img_ep.append(env.render())
+        if continuous:
+            action = actor(state.to(device)).mean
+        else:
+            action_dstr = actor(state.to(device))  # Use purely exploitative policy at test time
+            _, action = torch.max(action_dstr,0)
+
         step_ep += 1
         if step_ep > 60:
             break
+        state, reward, done = env.step(action.long())
+        total_reward += reward
+        img_ep.append(env.render())
     vid.from_list(img_ep,step)
     return total_reward
 
@@ -67,9 +72,12 @@ for step in pbar:
     else:
       # Observe state s and select action a ~ μ(a|s)
       #action = actor(state).sample()
-      action_dstr = actor(state.to(device))
-      _, action = torch.max(action_dstr,0)
-      action = action.unsqueeze(dim=0).long()
+      if continuous:
+          action = actor(state.to(device)).sample()
+      else:
+          action_dstr = actor(state.to(device))
+          _, action = torch.max(action_dstr,0)
+          action = action.unsqueeze(dim=0).long()
     # Execute a in the environment and observe next state s', reward r, and done signal d to indicate whether s' is terminal
     next_state, reward, done = env.step(action.long())
     # Store (s, a, r, s', d) in replay buffer D
@@ -104,26 +112,41 @@ for step in pbar:
     #batch = {k: torch.cat([d[k] for d in batch], dim=0) for k in batch[0].keys()}
     # Compute targets for Q and V functions
     y_q = batch['reward'] + DISCOUNT * (1 - batch['done']) * target_value_critic(batch['next_state'])
-    action_dstr = actor(batch['state'])
-    #action = policy.rsample()  # a(s) is a sample from μ(·|s) which is differentiable wrt θ via the reparameterisation trick
-    weighted_sample_entropy = ENTROPY_WEIGHT * torch.log(action_dstr)  # Note: in practice it is more numerically stable to calculate the log probability when sampling an action to avoid inverting tanh
-    a_idx = (batch['action']).view(-1,1).to(device)
-    y_v = torch.min(critic_1(batch['state']).gather(1,a_idx), critic_2(batch['state']).gather(1,a_idx)) - weighted_sample_entropy.detach().gather(1,a_idx)
+    if continuous:
+        policy = actor(batch['state'])
+        action = policy.rsample()  # a(s) is a sample from μ(·|s) which is differentiable wrt θ via the reparameterisation trick
+        weighted_sample_entropy = ENTROPY_WEIGHT * policy.log_prob(action).sum(dim=1)  # Note: in practice it is more numerically stable to calculate the log probability when sampling an action to avoid inverting tanh
+        y_v = torch.min(critic_1(batch['state'], action.detach()), critic_2(batch['state'], action.detach())) - weighted_sample_entropy.detach()
+    else:
+        action_dstr = actor(batch['state'])
+        weighted_sample_entropy = ENTROPY_WEIGHT * torch.log(action_dstr)  # Note: in practice it is more numerically stable to calculate the log probability when sampling an action to avoid inverting tanh
+        a_idx = (batch['action']).view(-1,1).to(device)
+        y_v = torch.min(critic_1(batch['state']).gather(1,a_idx), critic_2(batch['state']).gather(1,a_idx)) - weighted_sample_entropy.detach().gather(1,a_idx)
+
 
     # Update Q-functions by one step of gradient descent
-    value_loss = ((critic_1(batch['state']).gather(1,a_idx) - y_q).pow(2).mean() + (critic_2(batch['state']).gather(1,a_idx) - y_q).pow(2).mean()).to(device)
+    if continuous:
+        value_loss = (critic_1(batch['state'], batch['action']) - y_q).pow(2).mean() + (critic_2(batch['state'], batch['action']) - y_q).pow(2).mean().to(device)
+    else:
+        value_loss = ((critic_1(batch['state']).gather(1,a_idx) - y_q).pow(2).mean() + (critic_2(batch['state']).gather(1,a_idx) - y_q).pow(2).mean()).to(device)
     critics_optimiser.zero_grad()
     value_loss.backward()
     critics_optimiser.step()
 
     # Update V-function by one step of gradient descent
-    value_loss = ((value_critic(batch['state']) - y_v).pow(2).mean()).to(device)
+    if continuous:
+        value_loss = (value_critic(batch['state']) - y_v).pow(2).mean().to(device)
+    else:
+        value_loss = ((value_critic(batch['state']) - y_v).pow(2).mean()).to(device)
     value_critic_optimiser.zero_grad()
     value_loss.backward()
     value_critic_optimiser.step()
 
     # Update policy by one step of gradient ascent
-    policy_loss = ((weighted_sample_entropy - critic_1(batch['state'])).sum(dim=1).mean()).to(device)
+    if continuous:
+        policy_loss = (weighted_sample_entropy - critic_1(batch['state'], action)).mean().to(device)
+    else:
+        policy_loss = ((weighted_sample_entropy - critic_1(batch['state'])).sum(dim=1).mean()).to(device)
     actor_optimiser.zero_grad()
     policy_loss.backward()
     actor_optimiser.step()
