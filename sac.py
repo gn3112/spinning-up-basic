@@ -8,11 +8,23 @@ from env import Env
 from models import Critic, SoftActor, create_target_network, update_target_network
 from utils import plot
 from images_to_video import im_to_vid
+import argparse
+import logz
 
+# SAC implementation from spinning-up-basic
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--exp_name', required=True)
+args = parser.parse_args()
+if not(os.path.exists('data')):
+        os.makedirs('data')
+    logdir = args.exp_name + '_' + time.strftime("%d-%m-%Y_%H-%M-%S")
+    logdir = os.path.join('data', logdir)
+    if not(os.path.exists(logdir)):
+        os.makedirs(logdir)
 env = Env()
-eval = evaluation()
-expdir = 
-vid = im_to_vid(expdir)
+vid = im_to_vid(logdir)
+setup_logger(logdir)
 actor = SoftActor(HIDDEN_SIZE)
 critic_1 = Critic(HIDDEN_SIZE, 8, state_action=False)
 critic_2 = Critic(HIDDEN_SIZE, 8, state_action=False)
@@ -23,21 +35,23 @@ critics_optimiser = optim.Adam(list(critic_1.parameters()) + list(critic_2.param
 value_critic_optimiser = optim.Adam(value_critic.parameters(), lr=LEARNING_RATE)
 D = deque(maxlen=REPLAY_SIZE)
 
-class evaluation(object): 
-    def test(actor):
-        img_ep = []  
-        with torch.no_grad():
-            state, done, total_reward = env.reset(), False, 0
-        while not done:
-            action_dstr = actor(state)  # Use purely exploitative policy at test time
-            _, action = torch.max(action_dstr,0)  
-            state, reward, done = env.step(action.long())
-            total_reward += reward
-            img_ep.append(env.render())
-            
-        vid.from_list(img_ep,)
-        return total_reward
+def test(actor,step):
+    img_ep = []
+    with torch.no_grad():
+        state, done, total_reward = env.reset(), False, 0
+    while not done:
+        action_dstr = actor(state)  # Use purely exploitative policy at test time
+        _, action = torch.max(action_dstr,0)
+        state, reward, done = env.step(action.long())
+        total_reward += reward
+        img_ep.append(env.render())
+    self.steps =
+    vid.from_list(img_ep,step)
+    return total_reward
 
+def setup_logger(logdir):
+    # Configure output directory for logging
+    logz.configure_output_dir(logdir)
 
 state, done = env.reset(), False
 pbar = tqdm(range(1, MAX_STEPS + 1), unit_scale=1, smoothing=0)
@@ -51,7 +65,7 @@ for step in pbar:
       #action = actor(state).sample()
       action_dstr = actor(state)
       _, action = torch.max(action_dstr,0)
-      action = action.unsqueeze(dim=0).long() 
+      action = action.unsqueeze(dim=0).long()
     # Execute a in the environment and observe next state s', reward r, and done signal d to indicate whether s' is terminal
     next_state, reward, done = env.step(action.long())
     # Store (s, a, r, s', d) in replay buffer D
@@ -82,7 +96,7 @@ for step in pbar:
              'next_state':torch.cat(state_next_batch,dim=0),
              'done':torch.cat(done_batch,dim=0)
              }
-    
+
     #batch = {k: torch.cat([d[k] for d in batch], dim=0) for k in batch[0].keys()}
     # Compute targets for Q and V functions
     y_q = batch['reward'] + DISCOUNT * (1 - batch['done']) * target_value_critic(batch['next_state'])
@@ -115,7 +129,12 @@ for step in pbar:
 
   if step > UPDATE_START and step % TEST_INTERVAL == 0:
     actor.eval()
-    total_reward = test(actor)
+    total_reward = test(actor,step)
+    logz.log_tabular('Step', step )
+    logz.log_tabular('Validation total_reward', total_reward)
+    logz.dump_tabular()
     pbar.set_description('Step: %i | Reward: %f' % (step, total_reward))
-    #plot(step, total_reward, 'sac')
+
     actor.train()
+
+env.terminate()
