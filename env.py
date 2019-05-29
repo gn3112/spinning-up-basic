@@ -16,7 +16,7 @@ class Env():
     reward, done = self._env.step_(action.detach())
     state = self._env.get_obs()
     self.n_step += 1
-    if self.n_step > 60: 
+    if self.n_step > 60:
         self.n_step = 0
         self.reset()
     elif done:
@@ -25,3 +25,6 @@ class Env():
 
   def render(self):
     return self._env.render()
+
+  def terminate(self):
+    self._env.terminate()
