@@ -12,7 +12,7 @@ import argparse
 import logz
 import time
 import os
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu" if torch.cuda.is_available() else "cpu")
 
 # SAC implementation from spinning-up-basic
 def setup_logger(logdir):
@@ -68,7 +68,10 @@ for step in pbar:
   with torch.no_grad():
     if step < UPDATE_START:
       # To improve exploration take actions sampled from a uniform random distribution over actions at the start of training
-      action = torch.tensor(random.randrange(8)).unsqueeze(dim=0)
+      if continuous:
+          action = torch.tensor([(3 * random.random() - 1.5),(3 * random.random() - 1.5)])
+      else:    
+          action = torch.tensor(random.randrange(8)).unsqueeze(dim=0)
     else:
       # Observe state s and select action a ~ μ(a|s)
       #action = actor(state).sample()
@@ -79,7 +82,7 @@ for step in pbar:
           _, action = torch.max(action_dstr,0)
           action = action.unsqueeze(dim=0).long()
     # Execute a in the environment and observe next state s', reward r, and done signal d to indicate whether s' is terminal
-    next_state, reward, done = env.step(action.long())
+    next_state, reward, done = env.step(action)#.long
     # Store (s, a, r, s', d) in replay buffer D
     D.append({'state': state.unsqueeze(dim=0).to(device), 'action': action.to(device), 'reward': torch.tensor([reward]).float().to(device), 'next_state': next_state.unsqueeze(dim=0).to(device), 'done': torch.tensor([done], dtype=torch.float32).to(device)})
     state = next_state

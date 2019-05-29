@@ -71,8 +71,8 @@ class environment(object):
         #TODO: change directly from pos to vel without changing scene
         for action_rep in range(4):
             if self.continuous_control == True:
-                self.joint1.set_joint_target_velocity(velocity_all[0]) # radians/s
-                self.joint2.set_joint_target_velocity(velocity_all[1])
+                self.joint1.set_joint_target_velocity(action[0]) # radians/s
+                self.joint2.set_joint_target_velocity(action[1])
             else:
                 position_all = self.action_all[action]
                 joints_pos = self.get_joints_pos()

@@ -44,18 +44,19 @@ class SoftActor(nn.Module):
   def __init__(self, hidden_size, continuous=False):
     super().__init__()
     self.continuous = continuous
-    self.log_std_min, self.log_std_max = [-5,-5], [5,5]  # Constrain range of standard deviations to prevent very deterministic/stochastic policies
-    layers = [nn.Linear(10, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 4 if continuous else 8), (None if continuous else nn.Softmax(dim=0))]
+    self.log_std_min, self.log_std_max = -1.5, 1.5  # Constrain range of standard deviations to prevent very deterministic/stochastic policies
+    layers = [nn.Linear(10, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 3 if self.continuous else 8)] # nn.Softmax(dim=0))
     self.policy = nn.Sequential(*layers)
 
   def forward(self, state):
-    if continuous:
-        policy_mean, policy_log_std = self.policy(state).chunk(2, dim=1)
-        policy_log_std = torch.clamp(policy_log_std, min=self.log_std_min, max=self.log_std_max)
-        policy = TanhNormal(policy_mean, policy_log_std.exp())
+    if self.continuous:
+        output_policy = self.policy(state)
+        policy_mean = output_policy[0:2]
+        policy_log_std = output_policy[-1]
+        policy_log_std = torch.clamp(policy_log_std, min=self.log_std_min, max=self.log_std_max).view(-1,1,1)
+        policy = TanhNormal(policy_mean,policy_log_std.exp()*torch.eye(2).view(policy_log_std.size()[0],2,2))
     else:
         policy = self.policy(state)
-
     return policy
 
 
