@@ -10,26 +10,31 @@ from utils import plot
 from images_to_video import im_to_vid
 import argparse
 import logz
+import time
+import os
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # SAC implementation from spinning-up-basic
+def setup_logger(logdir):
+    logz.configure_output_dir(d=logdir)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--exp_name', required=True)
 args = parser.parse_args()
 if not(os.path.exists('data')):
-        os.makedirs('data')
-    logdir = args.exp_name + '_' + time.strftime("%d-%m-%Y_%H-%M-%S")
-    logdir = os.path.join('data', logdir)
-    if not(os.path.exists(logdir)):
-        os.makedirs(logdir)
+    os.makedirs('data')
+logdir = args.exp_name + '_' + time.strftime("%d-%m-%Y_%H-%M-%S")
+logdir = os.path.join('data', logdir)
+if not(os.path.exists(logdir)):
+    os.makedirs(logdir)
+setup_logger(logdir)
 env = Env()
 vid = im_to_vid(logdir)
-setup_logger(logdir)
-actor = SoftActor(HIDDEN_SIZE)
-critic_1 = Critic(HIDDEN_SIZE, 8, state_action=False)
-critic_2 = Critic(HIDDEN_SIZE, 8, state_action=False)
-value_critic = Critic(HIDDEN_SIZE, 1)
-target_value_critic = create_target_network(value_critic)
+actor = SoftActor(HIDDEN_SIZE).to(device)
+critic_1 = Critic(HIDDEN_SIZE, 8, state_action=False).to(device)
+critic_2 = Critic(HIDDEN_SIZE, 8, state_action=False).to(device)
+value_critic = Critic(HIDDEN_SIZE, 1).to(device)
+target_value_critic = create_target_network(value_critic).to(device)
 actor_optimiser = optim.Adam(actor.parameters(), lr=LEARNING_RATE)
 critics_optimiser = optim.Adam(list(critic_1.parameters()) + list(critic_2.parameters()), lr=LEARNING_RATE)
 value_critic_optimiser = optim.Adam(value_critic.parameters(), lr=LEARNING_RATE)
@@ -40,18 +45,14 @@ def test(actor,step):
     with torch.no_grad():
         state, done, total_reward = env.reset(), False, 0
     while not done:
-        action_dstr = actor(state)  # Use purely exploitative policy at test time
+        action_dstr = actor(state.to(device))  # Use purely exploitative policy at test time
         _, action = torch.max(action_dstr,0)
         state, reward, done = env.step(action.long())
         total_reward += reward
         img_ep.append(env.render())
-    self.steps =
+
     vid.from_list(img_ep,step)
     return total_reward
-
-def setup_logger(logdir):
-    # Configure output directory for logging
-    logz.configure_output_dir(logdir)
 
 state, done = env.reset(), False
 pbar = tqdm(range(1, MAX_STEPS + 1), unit_scale=1, smoothing=0)
@@ -63,13 +64,13 @@ for step in pbar:
     else:
       # Observe state s and select action a ~ μ(a|s)
       #action = actor(state).sample()
-      action_dstr = actor(state)
+      action_dstr = actor(state.to(device))
       _, action = torch.max(action_dstr,0)
       action = action.unsqueeze(dim=0).long()
     # Execute a in the environment and observe next state s', reward r, and done signal d to indicate whether s' is terminal
     next_state, reward, done = env.step(action.long())
     # Store (s, a, r, s', d) in replay buffer D
-    D.append({'state': state.unsqueeze(dim=0), 'action': action, 'reward': torch.tensor([reward]).float(), 'next_state': next_state.unsqueeze(dim=0), 'done': torch.tensor([done], dtype=torch.float32)})
+    D.append({'state': state.unsqueeze(dim=0).to(device), 'action': action.to(device), 'reward': torch.tensor([reward]).float().to(device), 'next_state': next_state.unsqueeze(dim=0).to(device), 'done': torch.tensor([done], dtype=torch.float32).to(device)})
     state = next_state
     # If s' is terminal, reset environment state
     if done:
@@ -103,23 +104,23 @@ for step in pbar:
     action_dstr = actor(batch['state'])
     #action = policy.rsample()  # a(s) is a sample from μ(·|s) which is differentiable wrt θ via the reparameterisation trick
     weighted_sample_entropy = ENTROPY_WEIGHT * torch.log(action_dstr)  # Note: in practice it is more numerically stable to calculate the log probability when sampling an action to avoid inverting tanh
-    a_idx = (batch['action']).view(-1,1)
+    a_idx = (batch['action']).view(-1,1).to(device)
     y_v = torch.min(critic_1(batch['state']).gather(1,a_idx), critic_2(batch['state']).gather(1,a_idx)) - weighted_sample_entropy.detach().gather(1,a_idx)
 
     # Update Q-functions by one step of gradient descent
-    value_loss = (critic_1(batch['state']).gather(1,a_idx) - y_q).pow(2).mean() + (critic_2(batch['state']).gather(1,a_idx) - y_q).pow(2).mean()
+    value_loss = ((critic_1(batch['state']).gather(1,a_idx) - y_q).pow(2).mean() + (critic_2(batch['state']).gather(1,a_idx) - y_q).pow(2).mean()).to(device)
     critics_optimiser.zero_grad()
     value_loss.backward()
     critics_optimiser.step()
 
     # Update V-function by one step of gradient descent
-    value_loss = (value_critic(batch['state']) - y_v).pow(2).mean()
+    value_loss = ((value_critic(batch['state']) - y_v).pow(2).mean()).to(device)
     value_critic_optimiser.zero_grad()
     value_loss.backward()
     value_critic_optimiser.step()
 
     # Update policy by one step of gradient ascent
-    policy_loss = (weighted_sample_entropy - critic_1(batch['state'])).sum(dim=1).mean()
+    policy_loss = ((weighted_sample_entropy - critic_1(batch['state'])).sum(dim=1).mean()).to(device)
     actor_optimiser.zero_grad()
     policy_loss.backward()
     actor_optimiser.step()
